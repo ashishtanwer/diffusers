@@ -943,14 +943,19 @@ class LoraLoaderMixin:
                 module = self.text_encoder.get_submodule(name)
                 # Construct a new function that performs the LoRA merging. We will monkey patch
                 # this forward pass.
-                lora_layer = getattr(attn_processors[name], self._get_lora_layer_attribute(name))
+                attn_processor_name = ".".join(name.split(".")[:-1])
+                lora_layer = getattr(attn_processors[attn_processor_name], self._get_lora_layer_attribute(name))
                 old_forward = module.forward
 
-                def new_forward(x):
-                    return old_forward(x) + lora_layer(x)
+                # create a new scope that locks in the old_forward, lora_layer value for each new_forward function
+                def make_new_forward(old_forward, lora_layer):
+                    def new_forward(x):
+                        return old_forward(x) + lora_layer(x)
+
+                    return new_forward
 
                 # Monkey-patch.
-                module.forward = new_forward
+                module.forward = make_new_forward(old_forward, lora_layer)
 
     def _get_lora_layer_attribute(self, name: str) -> str:
         if "q_proj" in name:
